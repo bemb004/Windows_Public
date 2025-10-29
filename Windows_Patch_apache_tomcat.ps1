@@ -3,6 +3,7 @@
 ## ohne stoppen & starten des Service
 ## sucht rekursiv nach dem Versionsordner (bzw. ZIP-Archiv) unter C:\DBA und all seinen Unterordnern.
 ## starten & starten optional, wenn preplans es nicht geschafft hat, dann wird start bzw. stop per skript ausgeführt => Überprüfung wurde dafür eingebaut
+## Apache & Tomcat Pach_Skript
 ############################################
 param (
     [Parameter(Mandatory = $true)]
