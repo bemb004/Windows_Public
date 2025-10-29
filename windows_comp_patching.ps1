@@ -1,7 +1,8 @@
 ############################################
 ## manuelle Eingabe der Version in das Skript
-## mit automatischen stoppen & starten des Service
+## ohne stoppen & starten des Service
 ## sucht rekursiv nach dem Versionsordner (bzw. ZIP-Archiv) unter C:\DBA und all seinen Unterordnern.
+## starten & starten optional, wenn preplans es nicht geschafft hat, dann wird start bzw. stop per skript ausgeführt => Überprüfung wurde dafür eingebaut
 ############################################
 param (
     [Parameter(Mandatory = $true)]
@@ -150,18 +151,25 @@ catch {
 $serviceName = $ComponentName
 
 try {
-    Stop-Service -Name $ComponentName -Force -ErrorAction Stop
-    Write-Host "Service '$ComponentName' successfully stopped."
-    Start-Sleep -Seconds 5
+    $svc = Get-Service -Name $ComponentName -ErrorAction Stop
+    if ($svc.Status -eq 'Running') {
+        Write-Host "Service '$ComponentName' is running — stopping now..."
+        Stop-Service -Name $ComponentName -Force -ErrorAction Stop
+        Write-Host "Service '$ComponentName' successfully stopped."
+        Start-Sleep -Seconds 5
+    }
+    else {
+        Write-Host "Service '$ComponentName' is already stopped — skipping stop operation."
+    }
 }
 catch {
     $rc = 21
-    $msg = "Could not stop service '$ComponentName': $($_.Exception.Message)"
+    $msg = "Could not query or stop service '$ComponentName': $($_.Exception.Message)"
     Write-Host ((Get-Date -format s) + " - VERROR : $msg")
     Write-Host ((Get-Date -format s) + " - VRETURNCODE : $rc")
     exit $rc
 }
-
+#########################################################################################################
 if ($resolvedType -eq 'apache') {
     Write-Host "Start Apache update to version $NewApacheVersion..."
 
@@ -355,8 +363,6 @@ call %APACHE_HTTPD% -f %SRV_BASE%\conf\httpd.conf -t
 timeout /t 30 /nobreak >nul
 call %APACHE_HTTPD% -k install -n "%SRV_SID%" -D SSL -f "%SRV_BASE%\conf\httpd.conf"
 timeout /t 30 /nobreak >nul
-call startsrv
-timeout /t 30 /nobreak >nul
 echo.
 echo Done. This window will close automatically in 30 seconds....
 timeout /t 30 /nobreak >nul
@@ -383,11 +389,37 @@ exit
 
     try {
         $svc = Get-Service -Name $ComponentName -ErrorAction Stop
+    
+        if ($svc.Status -ne 'Running') {
+            Write-Host "Service '$ComponentName' is not running (Status: $($svc.Status)). Attempting to start..." -ForegroundColor Yellow
+            try {
+                Start-Service -Name $ComponentName -ErrorAction Stop
+                Start-Sleep -Seconds 5
+                $svc.Refresh()
+                if ($svc.Status -eq 'Running') {
+                    Write-Host "Service '$ComponentName' started successfully." -ForegroundColor Green
+                }
+                else {
+                    Write-Host "Service '$ComponentName' could not be started. Current status: $($svc.Status)" -ForegroundColor Red
+                    exit 31
+                }
+            }
+            catch {
+                Write-Host "VERROR: Failed to start service '$ComponentName' — $($_.Exception.Message)" -ForegroundColor Red
+                Write-Host ((Get-Date -Format s) + " - VRETURNCODE : 31")
+                exit 31
+            }
+        }
+        else {
+            Write-Host "Service '$ComponentName' is already running — no action needed." -ForegroundColor Gray
+        }
+    
+        $svc.Refresh()
         if ($svc.Status -eq 'Running') {
             Write-Host "Service '$ComponentName' is running successfully." -ForegroundColor Green
         }
         else {
-            Write-Host "Service '$ComponentName' is not running (Status: $($svc.Status))." -ForegroundColor Red
+            Write-Host "Service '$ComponentName' is not running after start attempt (Status: $($svc.Status))." -ForegroundColor Red
             exit 31
         }
     }
@@ -713,8 +745,6 @@ if %errorlevel% neq 0 (
 rem calls  ...
 call C:\DBA\apache\JTC\$NewTomcatVersion\bin\service.bat install $ComponentName
 timeout /t 30 /nobreak >nul
-call startsrv
-timeout /t 30 /nobreak >nul
 echo.
 echo Done. This window will close automatically in 30 seconds....
 timeout /t 30 /nobreak >nul
@@ -735,16 +765,44 @@ exit
         Write-Host $newResult.Block
     }
     else {
-        Write-Host "New block [$ComponentName] could not be read from apache.senv."
+        Write-Host "New block [$ComponentName] could not be read from tomcat.senv."
     }  
 
-    $service = Get-Service -Name $ComponentName -ErrorAction SilentlyContinue
-    $success = $false
-    $currentVersion = $null
+$service = Get-Service -Name $ComponentName -ErrorAction SilentlyContinue
+$success = $false
+$currentVersion = $null
 
-    if ($service -and $service.Status -eq 'Running') {
+if (-not $service) {
+    Write-Host "Service '$ComponentName' not found. Attempting to re-detect after 5 seconds..." -ForegroundColor Yellow
+    Start-Sleep -Seconds 5
+    $service = Get-Service -Name $ComponentName -ErrorAction SilentlyContinue
+}
+
+if ($service) {
+    if ($service.Status -ne 'Running') {
+        Write-Host "Service '$ComponentName' is not running (Status: $($service.Status)). Attempting to start..." -ForegroundColor Yellow
         try {
-        
+            Start-Service -Name $ComponentName -ErrorAction Stop
+            Start-Sleep -Seconds 5
+            $service.Refresh()
+            if ($service.Status -eq 'Running') {
+                Write-Host "Service '$ComponentName' started successfully." -ForegroundColor Green
+            }
+            else {
+                Write-Host "Service '$ComponentName' could not be started. Current status: $($service.Status)" -ForegroundColor Red
+            }
+        }
+        catch {
+            Write-Host "VERROR: Failed to start service '$ComponentName' — $($_.Exception.Message)" -ForegroundColor Red
+            Write-Host ((Get-Date -Format s) + " - VRETURNCODE : 31")
+        }
+    }
+    else {
+        Write-Host "Service '$ComponentName' is already running — no action needed." -ForegroundColor Gray
+    }
+
+    if ($service.Status -eq 'Running') {
+        try {
             $svcRoot = "HKLM:\SYSTEM\CurrentControlSet\Services\$ComponentName"
             $imgPath = (Get-ItemProperty -Path $svcRoot -Name ImagePath -ErrorAction Stop).ImagePath
             if ($imgPath -match "\\JTC\\(?<ver>[\d\.]+)\\") {
@@ -758,25 +816,37 @@ exit
             Write-Host "Could not determine current version from registry: $($_.Exception.Message)"
         }
     }
+}
+else {
+    Write-Host "Service '$ComponentName' could not be found at all — skipping start attempt." -ForegroundColor Red
+}
 
-    if ($success) {
-        Write-Host "`n Component '$ComponentName' runs successfully with the new version." -ForegroundColor Green
-    }
-    else {
-        Write-Host "`n Update of '$ComponentName' unsuccessful: " -ForegroundColor Red
-        if ($service) {
-            Write-Host "   service status : $($service.Status)"
-            if ($currentVersion) {
-                Write-Host "   Current version: $currentVersion is not the updated version"
-            }
-            else {
-                Write-Host "   Version could not be determined."
-            }
+if ($success) {
+    Write-Host "`nComponent '$ComponentName' runs successfully with the new version ($NewTomcatVersion)." -ForegroundColor Green
+}
+else {
+    Write-Host "`nUpdate of '$ComponentName' unsuccessful:" -ForegroundColor Red
+    if ($service) {
+        Write-Host "   Service status : $($service.Status)"
+        if ($currentVersion) {
+            Write-Host "   Current version: $currentVersion (expected: $NewTomcatVersion)"
         }
         else {
-            Write-Host "   Service no longer exists."
+            Write-Host "   Version could not be determined."
         }
     }
+    else {
+        Write-Host "   Service no longer exists."
+    }
+ }
 }
 Stop-Transcript
 Write-Host "Log written to $logFile"
+
+
+
+
+
+
+
+
