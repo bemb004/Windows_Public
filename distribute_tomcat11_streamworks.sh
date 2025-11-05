@@ -11,9 +11,9 @@ SOURCE_FILE="/DBA/windows_test_bemb004/tomcat/version/apache-tomcat-11.0.13-wind
 DEST_DIR="C:/DBA"
 LOG_DIR="/DBA/windows_test_bemb004/tomcat/log"
 HOSTLIST=(
-  exlocwvu19261
-  GTLIFSWVM1041
-  exunxlvn14210
+  #exogewvx20122
+  #exogewvx20122
+  #exogewvx20122
 )
 
 # ==== preparation ==================================================

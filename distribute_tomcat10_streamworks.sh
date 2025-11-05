@@ -11,9 +11,29 @@ SOURCE_FILE="/DBA/windows_test_bemb004/tomcat/version/apache-tomcat-10.1.48-wind
 DEST_DIR="C:/DBA"
 LOG_DIR="/DBA/windows_test_bemb004/tomcat/log"
 HOSTLIST=(
-  exlocwvu19261
-  GTLIFSWVM1041
-  exunxlvn14210
+  gut205143
+  gut205141
+  exogewvj17352
+  exogewvw20381
+  exogewvx20122
+  exogewva22725
+  exewnwvo19411
+  degutppwafsap03
+  gut210141
+  gut210143
+  exogewvc22727
+  exogewva17343
+  exogewvb17344
+  exogewvz21138
+  exogewva21139
+  exogewvb21140
+  exogewvc21141
+  exewnwvh17220
+  exogewvg20157
+  exogewvi20159
+  exogewvb22726
+  exalfwvw14895
+  exalfwvb14900
 )
 
 # ==== preparation ==================================================
