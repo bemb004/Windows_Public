@@ -11,9 +11,9 @@ SOURCE_FILE="/DBA/windows_test_bemb004/apache/version/httpd-2.4.65-250724-Win64-
 DEST_DIR="C:/DBA"
 LOG_DIR="/DBA/windows_test_bemb004/apache/log"
 HOSTLIST=(
-  exlocwvu19261
-  GTLIFSWVM1041
-  exunxlvn14210
+  #exlocwvu19261
+  #GTLIFSWVM1041
+  #exunxlvn14210
 )
 
 # ==== preparation ==================================================
