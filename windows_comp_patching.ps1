@@ -1,10 +1,3 @@
-############################################
-## manuelle Eingabe der Version in das Skript
-## ohne stoppen & starten des Service
-## sucht rekursiv nach dem Versionsordner (bzw. ZIP-Archiv) unter C:\DBA und all seinen Unterordnern.
-## starten & starten optional, wenn preplans es nicht geschafft hat, dann wird start bzw. stop per skript ausgeführt => Überprüfung wurde dafür eingebaut
-## Apache & Tomcat Pach_Skript
-############################################
 param (
     [Parameter(Mandatory = $true)]
     [string]$ComponentName,
@@ -35,18 +28,81 @@ function Ensure-TempFolder {
 }
 
 Ensure-TempFolder -Path "C:\TEMP"
-
-$logFile = "C:\TEMP\UpdateComponent_$ComponentName_$(Get-Date -Format yyyyMMdd_HHmmss).log"
-Start-Transcript -Path $logFile -Force
-trap { Stop-Transcript | Out-Null; throw }
-
 $SenvFolder = "C:\DBA\nest\senv\local"
 
-#Enter new Apache version manually
-$NewApacheVersion = "2.4.60"
+# --- Define target versions for each Tomcat major version ---
+$TomcatTargetMap = @{
+    "9"  = "9.0.111"
+    "10" = "10.1.48"
+    "11" = "11.0.13"
+}
 
-#Enter new Tomcat version manually
-$NewTomcatVersion = "10.1.44"
+# --- Apache target version ---
+$NewApacheVersion = "2.4.65"
+
+function Get-CurrentTomcatVersion {
+    param(
+        [string]$ComponentName,
+        [string]$SenvFolder = "C:\DBA\nest\senv\local"
+    )
+
+    try {
+
+        $svcRoot = "HKLM:\SYSTEM\CurrentControlSet\Services\$ComponentName"
+        if (Test-Path $svcRoot) {
+            $imgPath = (Get-ItemProperty -Path $svcRoot -Name ImagePath -ErrorAction Stop).ImagePath
+            if ($imgPath -match "\\JTC\\(?<ver>\d+(?:\.\d+){1,2})\\") {
+                return $Matches['ver']
+            }
+        }
+    }
+    catch {
+        Write-Host "No service registry info found for $ComponentName, fallback to .senv..." -ForegroundColor Gray
+    }
+
+    try {
+
+        $senvFile = Join-Path $SenvFolder "tomcat.senv"
+        if (Test-Path $senvFile) {
+            $content = Get-Content $senvFile -Raw
+            if ($content -match "(?im)\[$ComponentName\].*?SET\s+set\s+CATALINA_HOME\s*=\s*C:\\DBA\\apache\\JTC\\(?<ver>[\d\.]+)") {
+                return $Matches['ver']
+            }
+        }
+    }
+    catch {
+        Write-Host "Could not read tomcat.senv for version detection: $($_.Exception.Message)" -ForegroundColor Red
+    }
+
+    return $null
+}
+
+$CurrentTomcatVersion = Get-CurrentTomcatVersion -ComponentName $ComponentName
+
+if ($null -eq $CurrentTomcatVersion) {
+    Write-Host ((Get-Date -Format s) + " - VERROR : Could not detect current Tomcat version for '$ComponentName'") -ForegroundColor Red
+    Write-Host ((Get-Date -Format s) + " - VRETURNCODE : 41")
+    exit 41
+}
+
+if ($CurrentTomcatVersion -notmatch '^(?<major>\d+)') {
+    Write-Host ((Get-Date -Format s) + " - VERROR : Invalid Tomcat version format '$CurrentTomcatVersion'") -ForegroundColor Red
+    Write-Host ((Get-Date -Format s) + " - VRETURNCODE : 42")
+    exit 42
+}
+
+$major = $Matches['major']
+
+if ($TomcatTargetMap.ContainsKey($major)) {
+    $NewTomcatVersion = $TomcatTargetMap[$major]
+    Write-Host "Detected Tomcat $CurrentTomcatVersion → upgrading to $NewTomcatVersion" -ForegroundColor Yellow
+} else {
+    Write-Host ((Get-Date -Format s) + " - VERROR : No update target defined for Tomcat $major.x") -ForegroundColor Red
+    Write-Host ((Get-Date -Format s) + " - VRETURNCODE : 43")
+    exit 43
+}
+
+Write-Host "Final target Tomcat version: $NewTomcatVersion" -ForegroundColor Green
 
 
 function Get-SenvFilesForType {
@@ -130,7 +186,39 @@ try {
         Write-Host ((Get-Date -Format s) + " - INFO   : No block found for [$ComponentName] in *.senv.")
         exit 4
     }
+#    
+##    
+###
+$SRV_BASE = (
+  $result.Block -split "`r?`n" |
+  Where-Object { $_ -match '^\s*SET\s+set\s+SRV_BASE\s*=\s*(.+)$' } |
+  Select-Object -Last 1
+) -replace '.*SRV_BASE\s*=\s*',''
 
+    if ([string]::IsNullOrWhiteSpace($SRV_BASE)) {
+        Write-Host "VERROR: SRV_BASE not found in block – cannot determine log path" -ForegroundColor Red
+        Write-Host ((Get-Date -Format s) + " - VRETURNCODE : 44")
+        exit 44
+    } else {
+    
+        $LogTarget = Join-Path $SRV_BASE "logs"
+    
+        if (-not (Test-Path $LogTarget)) {
+            Write-Host "Creating log directory: $LogTarget" -ForegroundColor Yellow
+            New-Item -ItemType Directory -Path $LogTarget -Force | Out-Null
+        }
+    
+        $global:logFile = Join-Path $LogTarget ("UpdateComponent_{0}_{1}.log" -f $ComponentName, (Get-Date -Format yyyyMMdd_HHmmss))
+    
+        Start-Transcript -Path $global:logFile -Force
+        trap { Stop-Transcript | Out-Null; throw }
+    
+        Write-Host "Logging started: $global:logFile" -ForegroundColor Cyan
+    }
+
+###
+##
+#
     Write-Host "Found in : $($result.File)"
     Write-Host "Typ         : $($result.ComponentType)"
     if ($resolvedType -eq 'apache') {
@@ -148,7 +236,39 @@ catch {
     Write-Host ((Get-Date -Format s) + " - VRETURNCODE : 7")
     exit 7
 }
+#####
+#####
+function Backup-ComponentTypSenv {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ComponentType,
+        [string]$SenvFolder = "C:\DBA\nest\senv\local"
+    )
 
+    try {
+        $senvFile = Join-Path $SenvFolder "$ComponentType.senv"
+        if (-not (Test-Path $senvFile)) {
+            Write-Host "No $ComponentType.senv found at $SenvFolder – skipping backup." -ForegroundColor Yellow
+            return
+        }
+
+        $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+        $backupFile = "$senvFile.$timestamp.bak"
+
+        Copy-Item -Path $senvFile -Destination $backupFile -Force
+
+        Write-Host "Backup created: $backupFile" -ForegroundColor Green
+        Write-Host ((Get-Date -Format s) + " - INFO  : $ComponentType.senv backup stored at $backupFile")
+    }
+    catch {
+        Write-Host "VERROR: Could not back up $ComponentType.senv — $($_.Exception.Message)" -ForegroundColor Red
+        Write-Host ((Get-Date -Format s) + " - VRETURNCODE : 12")
+        exit 12
+    }
+}
+#####
+Backup-ComponentTypSenv -ComponentType $resolvedType
+#####
 $serviceName = $ComponentName
 
 try {
@@ -248,19 +368,6 @@ if ($resolvedType -eq 'apache') {
         Write-Host ((Get-Date -Format s) + " - VRETURNCODE : 23")
         exit 23
     }
-
-    try {
-        $svc = Get-Service -Name $ComponentName -ErrorAction SilentlyContinue
-        if ($svc) {
-            Write-Host "Stop service $ComponentName..."
-            Stop-Service -Name $ComponentName -Force -ErrorAction Stop
-            Start-Sleep -Seconds 5
-        }
-    }
-    catch {
-        Write-Warning "Service $ComponentName could not be stopped: $($_.Exception.Message)"
-    }
-
     $senvFile = "C:\DBA\nest\senv\local\apache.senv"
     if (-not (Test-Path $senvFile)) { throw "apache.senv not found under $senvFile" }
 
@@ -314,17 +421,17 @@ if ($resolvedType -eq 'apache') {
     Set-Content -Path $senvFile -Value $newLines -Encoding UTF8
     Write-Host "apache.senv updated for $ComponentName."
 
-    try {
-        $svc = Get-Service -Name $ComponentName -ErrorAction SilentlyContinue
-        if ($svc) {
-            Write-Host "Delete service $ComponentName..."
-            & sc.exe delete $ComponentName | Out-Null
-            Start-Sleep -Seconds 5
-        }
-    }
-    catch {
-        Write-Warning "The $ComponentName service could not be deleted: $($_.Exception.Message)"
-    }
+   # try {
+     #   $svc = Get-Service -Name $ComponentName -ErrorAction SilentlyContinue
+     #   if ($svc) {
+      #      Write-Host "Delete service $ComponentName..."
+       #     & sc.exe delete $ComponentName | Out-Null
+       #     Start-Sleep -Seconds 5
+       # }
+    #}
+    #catch {
+    #    Write-Warning "The $ComponentName service could not be deleted: $($_.Exception.Message)"
+   # }
     $serviceName = $ComponentName 
 
     $wshell = New-Object -ComObject WScript.Shell 
@@ -692,24 +799,24 @@ elseif ($resolvedType -eq 'tomcat') {
 ###########################bemb004#######################################
 if ($resolvedType -eq 'tomcat') {
 
-    try {
-        sc.exe delete $ComponentName
-        Start-Sleep -Seconds 5
-        $serviceCheck = sc.exe query $ComponentName
-        if ($LASTEXITCODE -eq 0) {
-            sc.exe delete $ComponentName
-            Start-Sleep -Seconds 5
-            sc.exe query $ComponentName
-            if ($LASTEXITCODE -eq 0) {
-                throw "The $ComponentName service could not be deleted."
-            }
-        }
-        Write-Host "Service $ComponentName successfully deleted."
-    }
-    catch {
-        Write-Host "VERROR: $_"
-        exit 22
-    }
+  #  try {
+     #   sc.exe delete $ComponentName
+     #   Start-Sleep -Seconds 5
+      #  $serviceCheck = sc.exe query $ComponentName
+      #  if ($LASTEXITCODE -eq 0) {
+       #     sc.exe delete $ComponentName
+       #     Start-Sleep -Seconds 5
+       #     sc.exe query $ComponentName
+       #     if ($LASTEXITCODE -eq 0) {
+       #         throw "The $ComponentName service could not be deleted."
+        #    }
+        #}
+      #  Write-Host "Service $ComponentName successfully deleted."
+   # }
+    #catch {
+    #    Write-Host "VERROR: $_"
+       # exit 22
+   #}
 
     $serviceName = $ComponentName 
 
@@ -744,8 +851,6 @@ if %errorlevel% neq 0 (
   rem no exit here, so that the window remains open
 )
 rem calls  ...
-call C:\DBA\apache\JTC\$NewTomcatVersion\bin\service.bat install $ComponentName
-timeout /t 30 /nobreak >nul
 echo.
 echo Done. This window will close automatically in 30 seconds....
 timeout /t 30 /nobreak >nul
@@ -841,13 +946,7 @@ else {
     }
  }
 }
-Stop-Transcript
-Write-Host "Log written to $logFile"
-
-
-
-
-
-
-
-
+if ($global:logFile) {
+    try { Stop-Transcript | Out-Null } catch {}
+    Write-Host "Log written to $global:logFile" -ForegroundColor Green
+}
