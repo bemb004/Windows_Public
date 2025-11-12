@@ -5,6 +5,28 @@ param (
     [string]$ComponentType = $null
 )
 
+
+function Get-TomcatLogPath {
+    param([Parameter(Mandatory = $true)][string]$ServiceName)
+
+    $paths = @(
+        "HKLM:\SOFTWARE\Apache Software Foundation\Procrun 2.0\$ServiceName\Parameters\Log",
+        "HKLM:\SOFTWARE\Wow6432Node\Apache Software Foundation\Procrun 2.0\$ServiceName\Parameters\Log"
+    )
+
+    foreach ($p in $paths) {
+        if (Test-Path $p) {
+            $props = Get-ItemProperty $p -ErrorAction SilentlyContinue
+            if ($props.Path) {
+                return $props.Path.Trim()
+            }
+        }
+    }
+
+    return $null
+}
+
+
 function Ensure-TempFolder {
     param(
         [string]$Path = "C:\TEMP"
@@ -189,32 +211,23 @@ try {
 #    
 ##    
 ###
-$SRV_BASE = (
-  $result.Block -split "`r?`n" |
-  Where-Object { $_ -match '^\s*SET\s+set\s+SRV_BASE\s*=\s*(.+)$' } |
-  Select-Object -Last 1
-) -replace '.*SRV_BASE\s*=\s*',''
+$LogTarget = Get-TomcatLogPath -ServiceName $ComponentName
 
-    if ([string]::IsNullOrWhiteSpace($SRV_BASE)) {
-        Write-Host "VERROR: SRV_BASE not found in block – cannot determine log path" -ForegroundColor Red
-        Write-Host ((Get-Date -Format s) + " - VRETURNCODE : 44")
-        exit 44
-    } else {
-    
-        $LogTarget = Join-Path $SRV_BASE "logs"
-    
-        if (-not (Test-Path $LogTarget)) {
-            Write-Host "Creating log directory: $LogTarget" -ForegroundColor Yellow
-            New-Item -ItemType Directory -Path $LogTarget -Force | Out-Null
-        }
-    
-        $global:logFile = Join-Path $LogTarget ("UpdateComponent_{0}_{1}.log" -f $ComponentName, (Get-Date -Format yyyyMMdd_HHmmss))
-    
-        Start-Transcript -Path $global:logFile -Force
-        trap { Stop-Transcript | Out-Null; throw }
-    
-        Write-Host "Logging started: $global:logFile" -ForegroundColor Cyan
-    }
+if (-not $LogTarget) {
+    Write-Host "VERROR: Could not determine Tomcat log path from registry!" -ForegroundColor Red
+    Write-Host ((Get-Date -Format s) + " - VRETURNCODE : 55")
+    exit 55
+}
+
+if (-not (Test-Path $LogTarget)) {
+    Write-Host "Creating Tomcat log directory: $LogTarget" -ForegroundColor Yellow
+    New-Item -ItemType Directory -Path $LogTarget -Force | Out-Null
+}
+
+$global:logFile = Join-Path $LogTarget ("UpdateComponent_{0}_{1}.log" -f $ComponentName, (Get-Date -Format yyyyMMdd_HHmmss))
+
+Start-Transcript -Path $global:logFile -Force
+Write-Host "Logging started: $global:logFile" -ForegroundColor Cyan
 
 ###
 ##
@@ -735,7 +748,6 @@ elseif ($resolvedType -eq 'tomcat') {
                 $opts = $opts | ForEach-Object {
                     $_ = _Swap $_ $OldVersion $NewTomcatVersion $JtcRoot
                     $_ = $_ -replace "(?i)(-Dcatalina\.home=).*$", "`$1$JtcRoot\$NewTomcatVersion"
-                    $_ = $_ -replace "(?i)(-Dcatalina\.base=).*$", "`$1$JtcRoot\$NewTomcatVersion"
                     $_
                 }
                 Set-ItemProperty -Path $javaKey -Name Options -Value $opts
@@ -862,8 +874,8 @@ exit
 
     Start-Process -FilePath "cmd.exe" -ArgumentList "/k `"$cmdPath`"" -WorkingDirectory "C:\DBA\nest\senv"
 
-    Write-Host "`nWait 4 minutes before checking the status..." -ForegroundColor Yellow
-    Start-Sleep -Seconds 240
+    Write-Host "`nWait 3 minutes before checking the status..." -ForegroundColor Yellow
+    Start-Sleep -Seconds 180
     
     $newResult = Find-ComponentInSenv -ComponentName $ComponentName -ComponentType $resolvedType -SenvFolder $SenvFolder
     if ($null -ne $newResult) {
