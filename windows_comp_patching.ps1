@@ -962,3 +962,17 @@ if ($global:logFile) {
     try { Stop-Transcript | Out-Null } catch {}
     Write-Host "Log written to $global:logFile" -ForegroundColor Green
 }
+
+# --- Force tomcat.senv to UTF-8
+$TomcatSenvPath = "C:\DBA\nest\senv\local\tomcat.senv"
+if (Test-Path $TomcatSenvPath) {
+    Write-Host "Converting tomcat.senv to UTF-8 (no BOM)..." -ForegroundColor Yellow
+
+    $content = [System.IO.File]::ReadAllText($TomcatSenvPath)
+
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+
+    [System.IO.File]::WriteAllText($TomcatSenvPath, $content, $utf8NoBom)
+
+    Write-Host "tomcat.senv converted to UTF-8 (no BOM)." -ForegroundColor Green
+}
