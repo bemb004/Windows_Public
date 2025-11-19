@@ -34,7 +34,7 @@ function Ensure-TempFolder {
 
     try {
         if (-not (Test-Path -Path $Path)) {
-            Write-Host "Folder '$Path' not found — creating..." -ForegroundColor Yellow
+            Write-Host "Folder '$Path' not found, creating..." -ForegroundColor Yellow
             New-Item -ItemType Directory -Path $Path -Force | Out-Null
             Write-Host "Folder '$Path' created successfully." -ForegroundColor Green
         }
@@ -43,7 +43,7 @@ function Ensure-TempFolder {
         }
     }
     catch {
-        Write-Host "VERROR: Could not verify or create '$Path' — $($_.Exception.Message)" -ForegroundColor Red
+        Write-Host "VERROR: Could not verify or create '$Path' : $($_.Exception.Message)" -ForegroundColor Red
         Write-Host ((Get-Date -Format s) + " - VRETURNCODE : 11")
         exit 11
     }
@@ -274,7 +274,7 @@ function Backup-ComponentTypSenv {
         Write-Host ((Get-Date -Format s) + " - INFO  : $ComponentType.senv backup stored at $backupFile")
     }
     catch {
-        Write-Host "VERROR: Could not back up $ComponentType.senv — $($_.Exception.Message)" -ForegroundColor Red
+        Write-Host "VERROR: Could not back up $ComponentType.senv : $($_.Exception.Message)" -ForegroundColor Red
         Write-Host ((Get-Date -Format s) + " - VRETURNCODE : 12")
         exit 12
     }
@@ -287,13 +287,13 @@ $serviceName = $ComponentName
 try {
     $svc = Get-Service -Name $ComponentName -ErrorAction Stop
     if ($svc.Status -eq 'Running') {
-        Write-Host "Service '$ComponentName' is running — stopping now..."
+        Write-Host "Service '$ComponentName' is running, stopping now..."
         Stop-Service -Name $ComponentName -Force -ErrorAction Stop
         Write-Host "Service '$ComponentName' successfully stopped."
         Start-Sleep -Seconds 5
     }
     else {
-        Write-Host "Service '$ComponentName' is already stopped — skipping stop operation."
+        Write-Host "Service '$ComponentName' is already stopped, skipping stop operation."
     }
 }
 catch {
@@ -526,13 +526,13 @@ exit
                 }
             }
             catch {
-                Write-Host "VERROR: Failed to start service '$ComponentName' — $($_.Exception.Message)" -ForegroundColor Red
+                Write-Host "VERROR: Failed to start service '$ComponentName' : $($_.Exception.Message)" -ForegroundColor Red
                 Write-Host ((Get-Date -Format s) + " - VRETURNCODE : 31")
                 exit 31
             }
         }
         else {
-            Write-Host "Service '$ComponentName' is already running — no action needed." -ForegroundColor Gray
+            Write-Host "Service '$ComponentName' is already running, no action needed." -ForegroundColor Gray
         }
     
         $svc.Refresh()
@@ -911,12 +911,12 @@ if ($service) {
             }
         }
         catch {
-            Write-Host "VERROR: Failed to start service '$ComponentName' — $($_.Exception.Message)" -ForegroundColor Red
+            Write-Host "VERROR: Failed to start service '$ComponentName' : $($_.Exception.Message)" -ForegroundColor Red
             Write-Host ((Get-Date -Format s) + " - VRETURNCODE : 31")
         }
     }
     else {
-        Write-Host "Service '$ComponentName' is already running — no action needed." -ForegroundColor Gray
+        Write-Host "Service '$ComponentName' is already running, no action needed." -ForegroundColor Gray
     }
 
     if ($service.Status -eq 'Running') {
@@ -936,7 +936,7 @@ if ($service) {
     }
 }
 else {
-    Write-Host "Service '$ComponentName' could not be found at all — skipping start attempt." -ForegroundColor Red
+    Write-Host "Service '$ComponentName' could not be found at all, skipping start attempt." -ForegroundColor Red
 }
 
 if ($success) {
