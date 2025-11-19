@@ -1,7 +1,11 @@
 #!/bin/bash
 # -------------------------------------------------------------------
 # Streamworks Gesamt-Verteilskript
+# Auto Nick Bembenneck
 # Führt alle drei Verteiljobs nacheinander aus
+# "ssh Degtluv4645"
+# "senv"->"ad(adhoc)"->"2(APMPADHOC-PROD)"
+# C/DBA/windows_test_bemb004/tomcat
 # Datum: 2025-11-05
 # -------------------------------------------------------------------
 
@@ -56,7 +60,7 @@ run_distribution() {
 }
 
 # -------------------------------------------------------------------
-# JOB 1 – Tomcat 9.0.111
+# JOB 1: Tomcat 9.0.111
 # -------------------------------------------------------------------
 run_distribution \
   "degtluv4645" \
@@ -72,7 +76,7 @@ run_distribution \
   exalfwvb14900 gtalfwvw12607
 
 # -------------------------------------------------------------------
-# JOB 2 – Tomcat 10.1.48
+# JOB 2: Tomcat 10.1.48
 # -------------------------------------------------------------------
 run_distribution \
   "degtluv4645" \
@@ -85,7 +89,7 @@ run_distribution \
   exewnwvh17220 exogewvg20157 exogewvi20159 exogewvb22726 exalfwvw14895 exalfwvb14900
 
 # -------------------------------------------------------------------
-# JOB 3 – Tomcat 11.0.13
+# JOB 3: Tomcat 11.0.13
 # -------------------------------bemb004-----------------------------
 #run_distribution \
  # "degtluv4645" \
@@ -97,7 +101,3 @@ run_distribution \
 
 
 echo "✅ All distribution jobs completed."
-
-
-
-

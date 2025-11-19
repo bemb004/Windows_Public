@@ -261,7 +261,7 @@ function Backup-ComponentTypSenv {
     try {
         $senvFile = Join-Path $SenvFolder "$ComponentType.senv"
         if (-not (Test-Path $senvFile)) {
-            Write-Host "No $ComponentType.senv found at $SenvFolder – skipping backup." -ForegroundColor Yellow
+            Write-Host "No $ComponentType.senv found at $SenvFolder skipping backup." -ForegroundColor Yellow
             return
         }
 
@@ -353,7 +353,7 @@ if ($resolvedType -eq 'apache') {
             Expand-Archive -Path $archive.FullName -DestinationPath $tmp -Force
         } elseif ($archive.Name -match "\.tar\.gz$|\.tgz$") {
             $tar = Get-Command tar -ErrorAction SilentlyContinue
-            if (-not $tar) { throw "No tar found – cannot unpack '$($archive.FullName)'" }
+            if (-not $tar) { throw "No tar found, cannot unpack '$($archive.FullName)'" }
             & $tar.Source -xzf $archive.FullName -C $tmp
         } else {
             throw "Unsupported archive format: $($archive.Name)"
@@ -582,7 +582,7 @@ elseif ($resolvedType -eq 'tomcat') {
         }
         elseif ($isTarGz -or $ext -eq ".tar" -or $ext -eq ".tgz") {
             $tar = Get-Command tar -ErrorAction SilentlyContinue
-            if (-not $tar) { throw "No 'tar' found – cannot unpack '$ArchivePath'." }
+            if (-not $tar) { throw "No 'tar' found, cannot unpack '$ArchivePath'." }
             if (-not (Test-Path $Destination)) { New-Item -ItemType Directory -Path $Destination | Out-Null }
             & $tar.Source -xzf $ArchivePath -C $Destination
             return
@@ -720,7 +720,7 @@ elseif ($resolvedType -eq 'tomcat') {
                 }
             }
             foreach ($c in $cand) { $s = [string]$c; if ($rx.IsMatch($s)) { $OldVersion = $rx.Match($s).Groups['ver'].Value; break } }
-            if (-not $OldVersion) { throw "Old version cannot be determined – please specify -OldVersion." }
+            if (-not $OldVersion) { throw "Old version cannot be determined, please specify -OldVersion." }
         }
 
         function _Swap([object]$val, [string]$fromVer, [string]$toVer, [string]$root) {
