@@ -646,12 +646,73 @@ if ($resolvedType -eq 'tomcat') {
 # TOMCAT PATCHING WORKFLOW -> FUNCTIONS & PREPARATION (END)
 ####################################################################################
 
-#########################################################################################################
+####################################################################################
+# APACHE PATCHING WORKFLOW -> FUNCTIONS & PREPARATION (START)
+####################################################################################
 elseif ($resolvedType -eq 'apache') {
-    Write-Host "Start Apache update to version $NewApacheVersion..."
+
+# FUNCTION: Read Apache log directory from Windows registry
+function Get-ApacheLogPath {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ServiceName
+    )
+
+    $regPath = "HKLM:\SYSTEM\CurrentControlSet\Services\$ServiceName\Parameters"
+
+    if (Test-Path $regPath) {
+        $props = Get-ItemProperty $regPath -ErrorAction SilentlyContinue
+
+        if ($props.ConfigArgs) {
+            $args = $props.ConfigArgs -join " "
+
+            if ($args -match "(E:\\DBA\\nest\\apache\\[^\\]+\\)") {
+                
+                return (Join-Path $matches[1] "logs")
+            }
+        }
+    }
+
+    return $null
+}
+
+    # DETECTION: Determine Apache log path for component
+    $LogTarget = Get-ApacheLogPath -ServiceName $ComponentName
+
+    $global:logFile = Join-Path $LogTarget ("UpdateComponent_{0}_{1}.log" -f $ComponentName, (Get-Date -Format yyyyMMdd_HHmmss))
+
+    Start-Transcript -Path $global:logFile -Force
+    Write-Host "`nLogging started: $global:logFile" -ForegroundColor Cyan
+
+    # SENV LOOKUP: Find and display current component block
+    try {
+        $result = Find-ComponentInSenv -ComponentName $ComponentName -ComponentType $resolvedType -SenvFolder $SenvFolder
+        if ($null -eq $result) {
+            Write-Host ((Get-Date -Format s) + " - INFO   : No block found for [$ComponentName] in *.senv.")
+            exit 4
+        }
+        Write-Host "`nFound in : $($result.File)"
+        Write-Host "Typ         : $($result.ComponentType)"
+        if ($resolvedType -eq 'apache') {
+            Write-Host "target Version : $NewApacheVersion"    
+        }
+        Write-Host "lines      : $($result.StartLineNumber)-$($result.EndLineNumber-1)"
+        Write-Host "`n--- Current block (before update) ---"
+        Write-Host $result.Block
+    
+    }
+    catch {
+        Write-Host ((Get-Date -Format s) + " - VERROR : $($_.Exception.Message)")
+        Write-Host ((Get-Date -Format s) + " - VRETURNCODE : 7")
+        exit 7
+    }
+
+     # INFO: Start Apache update
+    Write-Host "`nStart Apache update to version $NewApacheVersion..."
 
     $apacheRoot = "C:\DBA\apache24\WWW"
 
+    # FUNCTION: Ensure Apache is present/unpacked in target directory
     function Ensure-ApacheReady {
         param(
             [Parameter(Mandatory = $true)][string]$Version,
@@ -661,23 +722,23 @@ elseif ($resolvedType -eq 'apache') {
 
         $target = Join-Path $TargetRoot $Version
         if (Test-Path (Join-Path $target "bin\httpd.exe")) {
-            Write-Host "Apache version $Version already prepared at $target"
+            Write-Host "`nApache version $Version already prepared at $target"
             return $target
         }
 
-        Write-Host "Searching for Apache version $Version under $($SearchRoots -join ', ')..."
+        Write-Host "`nSearching for Apache version $Version under $($SearchRoots -join ', ')..."
 
         $esc = [regex]::Escape($Version)
         $hits = Get-ChildItem -Path $SearchRoots -Recurse -Force -ErrorAction SilentlyContinue |
         Where-Object { $_.FullName -match $esc -and ( $_.PSIsContainer -or $_.Name -match '\.(zip|tar\.gz|tgz)$' ) }
 
         if (-not $hits -or $hits.Count -eq 0) {
-            throw "Apache version '$Version' not found in $($SearchRoots -join ', ')"
+            throw "`nApache version '$Version' not found in $($SearchRoots -join ', ')"
         }
 
         foreach ($hit in $hits) {
             if ($hit.PSIsContainer -and (Test-Path (Join-Path $hit.FullName "bin\httpd.exe"))) {
-                Write-Host "Found unpacked Apache folder: $($hit.FullName)"
+                Write-Host "`nFound unpacked Apache folder: $($hit.FullName)"
                 if (-not (Test-Path $TargetRoot)) { New-Item -ItemType Directory -Path $TargetRoot | Out-Null }
                 if (Test-Path $target) { Remove-Item -Recurse -Force $target }
                 Move-Item -Path $hit.FullName -Destination $target
@@ -686,9 +747,9 @@ elseif ($resolvedType -eq 'apache') {
         }
 
         $archive = $hits | Where-Object { -not $_.PSIsContainer } | Select-Object -First 1
-        if (-not $archive) { throw "No unpacked folder and no archive found for Apache $Version." }
+        if (-not $archive) { throw "`nNo unpacked folder and no archive found for Apache $Version." }
 
-        Write-Host "Found archive: $($archive.FullName)"
+        Write-Host "`nFound archive: $($archive.FullName)"
         $tmp = Join-Path ([System.IO.Path]::GetDirectoryName($archive.FullName)) ("__extract_" + [IO.Path]::GetFileNameWithoutExtension($archive.Name))
         if (Test-Path $tmp) { Remove-Item -Recurse -Force $tmp }
 
@@ -697,15 +758,15 @@ elseif ($resolvedType -eq 'apache') {
         }
         elseif ($archive.Name -match "\.tar\.gz$|\.tgz$") {
             $tar = Get-Command tar -ErrorAction SilentlyContinue
-            if (-not $tar) { throw "No tar found, cannot unpack '$($archive.FullName)'" }
+            if (-not $tar) { throw "`nNo tar found, cannot unpack '$($archive.FullName)'" }
             & $tar.Source -xzf $archive.FullName -C $tmp
         }
         else {
-            throw "Unsupported archive format: $($archive.Name)"
+            throw "`nUnsupported archive format: $($archive.Name)"
         }
 
         $candidate = Get-ChildItem -Path $tmp -Directory -Recurse | Where-Object { Test-Path (Join-Path $_.FullName "bin\httpd.exe") } | Select-Object -First 1
-        if (-not $candidate) { throw "No valid Apache24 structure found inside $tmp" }
+        if (-not $candidate) { throw "`nNo valid Apache24 structure found inside $tmp" }
 
         if (Test-Path $target) { Remove-Item -Recurse -Force $target }
         Move-Item -Path $candidate.FullName -Destination $target
@@ -716,26 +777,29 @@ elseif ($resolvedType -eq 'apache') {
         Write-Host "Apache $Version prepared at $target"
         return $target
     }
-
+# EXECUTION: Prepare Apache binaries / folder structure
     try {
         $apacheTarget = Ensure-ApacheReady -Version $NewApacheVersion -SearchRoots @("C:\DBA") -TargetRoot "C:\DBA\apache24\WWW"
-        Write-Host "Apache ready at: $apacheTarget"
+        Write-Host "`nApache ready at: $apacheTarget"
     }
     catch {
         Write-Host ((Get-Date -Format s) + " - VERROR : $($_.Exception.Message)")
         Write-Host ((Get-Date -Format s) + " - VRETURNCODE : 23")
         exit 23
     }
+
+    # SENV LOOKUP: Read apache.senv and locate component block
     $senvFile = "C:\DBA\nest\senv\local\apache.senv"
-    if (-not (Test-Path $senvFile)) { throw "apache.senv not found under $senvFile" }
+    if (-not (Test-Path $senvFile)) { throw "`napache.senv not found under $senvFile" }
 
     $lines = Get-Content -Path $senvFile -Encoding UTF8
     $start = -1
     for ($i = 0; $i -lt $lines.Count; $i++) {
         if ($lines[$i].Trim() -eq "[$ComponentName]") { $start = $i; break }
     }
-    if ($start -lt 0) { throw "block [$ComponentName] not found in apache.senv." }
+    if ($start -lt 0) { throw "`nblock [$ComponentName] not found in apache.senv." }
 
+    # PATCH APACHE.SENV: Update version, INC and httpd path
     $end = $start + 1
     while ($end -lt $lines.Count -and $lines[$end] -notmatch '^\s*\[.+\]\s*$') { $end++ }
 
@@ -776,63 +840,65 @@ elseif ($resolvedType -eq 'apache') {
     $newLines += $block
     if ($end -lt $lines.Count) { $newLines += $lines[$end..($lines.Count - 1)] }
 
+    # WRITE UPDATED SENV FILE
     Set-Content -Path $senvFile -Value $newLines -Encoding UTF8
-    Write-Host "apache.senv updated for $ComponentName."
+    Write-Host "`napache.senv updated for $ComponentName."
 
-    $serviceName = $ComponentName 
+# FUNCTION: Update Apache Windows Service registry
+function Update-ApacheServiceVersion {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ServiceName,
 
-    $wshell = New-Object -ComObject WScript.Shell 
+        [Parameter(Mandatory = $true)]
+        [string]$NewApacheVersion,
 
-    $sessionDir = "C:\DBA\nest\senv" 
- 
+        [string]$ApacheRoot = "C:\DBA\apache24\WWW"
+    )
 
-    if (-not (Test-Path $sessionDir)) { 
+    $svcRoot = "HKLM:\SYSTEM\CurrentControlSet\Services\$ServiceName"
 
-        $rc = 10 
+    if (-not (Test-Path $svcRoot)) {
+        throw "`nService not found in registry: $svcRoot"
+    }
 
-        $msg = "Session directory '$sessionDir' not found." 
+    $newHttpd = Join-Path $ApacheRoot "$NewApacheVersion\bin\httpd.exe"
 
-        Write-Host ((Get-Date -format s) + " - VERROR : $msg") 
+    if (-not (Test-Path $newHttpd)) {
+        throw "`nNew httpd.exe not found: $newHttpd"
+    }
 
-        Write-Host ((Get-Date -format s) + " - VRETURNCODE : $rc") 
+    # New ImagePath
+    $imagePath = "`"$newHttpd`" -k runservice"
 
-        exit $rc 
+    # New Description
+    $description = "Apache HTTP Server $NewApacheVersion patched"
 
-    } 
+    Write-Host "`nUpdating registry for Apache service $ServiceName..." -ForegroundColor Cyan
 
-    $cmd = @"
-@echo off
-set "SENV_HOME=C:\DBA\nest\senv"
-call "%SENV_HOME%\senv_profile.cmd"
-timeout /t 30 /nobreak >nul
-call "%SENV_HOME%\senv.cmd" $resolvedType $ComponentName
-timeout /t 30 /nobreak >nul
-if %errorlevel% neq 0 (
-  echo Error when calling senv.cmd
-  rem Window remains open
-)
-rem calls ...
-call confresolve --inputfile %SRV_BASE%\conf\httpd.conf.in --configfile=%SRV_BASE%\conf\server.inc
-timeout /t 30 /nobreak >nul
-call %APACHE_HTTPD% -f %SRV_BASE%\conf\httpd.conf -t
-timeout /t 30 /nobreak >nul
-call %APACHE_HTTPD% -k install -n "%SRV_SID%" -D SSL -f "%SRV_BASE%\conf\httpd.conf"
-timeout /t 30 /nobreak >nul
-echo.
-echo Done. This window will close automatically in 30 seconds....
-timeout /t 30 /nobreak >nul
-exit
-"@
+    Set-ItemProperty -Path $svcRoot -Name ImagePath   -Value $imagePath
+    Set-ItemProperty -Path $svcRoot -Name Description -Value $description
 
-    $cmdPath = "C:\TEMP\disable_component_$ComponentName.cmd"
-    Set-Content -Path $cmdPath -Value $cmd -Encoding ASCII
+    Write-Host "`n✓ ImagePath  => $imagePath" -ForegroundColor Green
+    Write-Host "✓ Description => $description" -ForegroundColor Green
+}
 
-    Start-Process -FilePath "cmd.exe" -ArgumentList "/k `"$cmdPath`"" -WorkingDirectory "C:\DBA\nest\senv"
+# EXECUTION: Update registry service configuration
+try {
+    Update-ApacheServiceVersion -ServiceName $ComponentName -NewApacheVersion $NewApacheVersion
+}
+catch {
+    Write-Host ((Get-Date -Format s) + " - VERROR : Could not update Apache service registry : $($_.Exception.Message)") -ForegroundColor Red
+    Write-Host ((Get-Date -Format s) + " - VRETURNCODE : 45")
+    exit 45
+}
 
-    Write-Host "`nWait 4 minutes before checking status..." -ForegroundColor Yellow
-    Start-Sleep -Seconds 240   
-    Start-Sleep -Seconds 10
+# WAIT: Give system time to update service
+    Write-Host "`nWait 1 minute before checking status..." -ForegroundColor Yellow
+    Start-Sleep -Seconds 60   
 
+    # VALIDATION: Check new .senv block
     $newResult = Find-ComponentInSenv -ComponentName $ComponentName -ComponentType $resolvedType -SenvFolder $SenvFolder
     if ($null -ne $newResult) {
         Write-Host "`n--- New block (after update) ---"
@@ -842,11 +908,12 @@ exit
         Write-Host "New block [$ComponentName] could not be read from apache.senv."
     }
 
+    # SERVICE CONTROL: Start Apache service (if required)
     try {
         $svc = Get-Service -Name $ComponentName -ErrorAction Stop
     
         if ($svc.Status -ne 'Running') {
-            Write-Host "Service '$ComponentName' is not running (Status: $($svc.Status)). Attempting to start..." -ForegroundColor Yellow
+            Write-Host "`nService '$ComponentName' is not running (Status: $($svc.Status)). Attempting to start..." -ForegroundColor Yellow
             try {
                 Start-Service -Name $ComponentName -ErrorAction Stop
                 Start-Sleep -Seconds 5
@@ -866,7 +933,7 @@ exit
             }
         }
         else {
-            Write-Host "Service '$ComponentName' is already running, no action needed." -ForegroundColor Gray
+            Write-Host "`nService '$ComponentName' is already running, no action needed." -ForegroundColor Gray
         }
     
         $svc.Refresh()
@@ -883,6 +950,20 @@ exit
         exit 32
     }
 
+    # FINAL FIX: Force apache.senv encoding to UTF-8 (no BOM)
+    $ApacheSenvPath = "C:\DBA\nest\senv\local\apache.senv"
+    if (Test-Path $ApacheSenvPath) {
+        Write-Host "`nConverting apache.senv to UTF-8 (no BOM)..." -ForegroundColor Yellow
+
+        $content = [System.IO.File]::ReadAllText($ApacheSenvPath)
+
+        $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+
+        [System.IO.File]::WriteAllText($ApacheSenvPath, $content, $utf8NoBom)
+
+        Write-Host "apache.senv converted to UTF-8 (no BOM)." -ForegroundColor Green
+    }
+
 }
 
 # CLEANUP: Stop transcript logging
@@ -894,5 +975,3 @@ if ($global:logFile) {
 ####################################################################################
 # PATCHSCRIPT COMPLETED => bemb004 / Internet Services
 ####################################################################################
-
-
