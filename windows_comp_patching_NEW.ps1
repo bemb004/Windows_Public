@@ -1,4 +1,4 @@
-#######################################
+# INPUT PARAMETERS
 param (
     [Parameter(Mandatory = $true)]
     [string]$ComponentName,
@@ -6,22 +6,17 @@ param (
     [string]$ComponentType = $null
 )
 
-#######################################
-
-# --- Define target versions for each Tomcat major version ---
+# Define target versions for each Tomcat major version
 $TomcatTargetMap = @{
     "9"  = "9.0.111"
     "10" = "10.1.48"
     "11" = "11.0.13"
 }
 
-#######################################
-
-# --- Apache target version ---
+# Apache target version
 $NewApacheVersion = "2.4.65"
 
-#######################################
-
+# SENV BASE CONFIGURATION
 $SenvFolder = "C:\DBA\nest\senv\local"
 
 function Get-SenvFilesForType {
@@ -39,7 +34,7 @@ function Get-SenvFilesForType {
     }
 }
 
-#######################################
+# FUNCTION: Detect component type based on naming convention
 function Detect-ComponentType {
     param([string]$ComponentName, [string]$Fallback = $null)
     if ($Fallback) { return $Fallback }
@@ -52,7 +47,8 @@ function Detect-ComponentType {
         default { return $null }
     }
 }
-#######################################
+
+# FUNCTION: Locate component block inside .senv files
 function Find-ComponentInSenv {
     param(
         [string]$ComponentName,
@@ -95,40 +91,12 @@ function Find-ComponentInSenv {
 
     return $null
 }
-#######################################
+
+# DETECTION: Resolve final component type
 $resolvedType = Detect-ComponentType -ComponentName $ComponentName -Fallback $ComponentType
 Write-Host "Component type detected: $resolvedType"
-#######################################
 
-try {
-    $result = Find-ComponentInSenv -ComponentName $ComponentName -ComponentType $resolvedType -SenvFolder $SenvFolder
-    if ($null -eq $result) {
-        Write-Host ((Get-Date -Format s) + " - INFO   : No block found for [$ComponentName] in *.senv.")
-        exit 4
-    }
-    #######################################
-
-    ####################################################
-    Write-Host "Found in : $($result.File)"
-    Write-Host "Typ         : $($result.ComponentType)"
-    if ($resolvedType -eq 'apache') {
-        Write-Host "target Version : $NewApacheVersion"
-    }
-    elseif ($resolvedType -eq 'tomcat') {
-        Write-Host "target Version : $NewTomcatVersion"    
-    }
-    Write-Host "lines      : $($result.StartLineNumber)-$($result.EndLineNumber-1)"
-    Write-Host "`n--- Current block (before update) ---"
-    Write-Host $result.Block
-    
-}
-catch {
-    Write-Host ((Get-Date -Format s) + " - VERROR : $($_.Exception.Message)")
-    Write-Host ((Get-Date -Format s) + " - VRETURNCODE : 7")
-    exit 7
-}
-#######################################
-
+# BACKUP: Secure current .senv file before modification
 function Backup-ComponentTypSenv {
     param(
         [Parameter(Mandatory = $true)]
@@ -159,9 +127,11 @@ function Backup-ComponentTypSenv {
 }
 
 Backup-ComponentTypSenv -ComponentType $resolvedType
-#######################################
+
+# SERVICE NAME MAPPING
 $serviceName = $ComponentName
 
+# SERVICE CONTROL: Stop component before patching
 try {
     $svc = Get-Service -Name $ComponentName -ErrorAction Stop
     if ($svc.Status -eq 'Running') {
@@ -181,7 +151,6 @@ catch {
     Write-Host ((Get-Date -format s) + " - VRETURNCODE : $rc")
     exit $rc
 }
-#######################################
 
 ####################################################################################
 # TOMCAT PATCHING WORKFLOW -> FUNCTIONS & PREPARATION (START)
@@ -217,6 +186,29 @@ if ($resolvedType -eq 'tomcat') {
 
     Start-Transcript -Path $global:logFile -Force
     Write-Host "Logging started: $global:logFile" -ForegroundColor Cyan
+
+    # SENV LOOKUP: Find and display current component block
+    try {
+        $result = Find-ComponentInSenv -ComponentName $ComponentName -ComponentType $resolvedType -SenvFolder $SenvFolder
+        if ($null -eq $result) {
+            Write-Host ((Get-Date -Format s) + " - INFO   : No block found for [$ComponentName] in *.senv.")
+            exit 4
+        }
+        Write-Host "Found in : $($result.File)"
+        Write-Host "Typ         : $($result.ComponentType)"
+        if ($resolvedType -eq 'tomcat') {
+            Write-Host "target Version : $NewTomcatVersion"    
+        }
+        Write-Host "lines      : $($result.StartLineNumber)-$($result.EndLineNumber-1)"
+        Write-Host "`n--- Current block (before update) ---"
+        Write-Host $result.Block
+    
+    }
+    catch {
+        Write-Host ((Get-Date -Format s) + " - VERROR : $($_.Exception.Message)")
+        Write-Host ((Get-Date -Format s) + " - VRETURNCODE : 7")
+        exit 7
+    }
 
     # FUNCTION: Detect current Tomcat version (Registry first, fallback to tomcat.senv)
     function Get-CurrentTomcatVersion {
@@ -559,6 +551,7 @@ if ($resolvedType -eq 'tomcat') {
 
     Write-Host "`nWait 1 minute before checking the status..." -ForegroundColor Yellow
     Start-Sleep -Seconds 60
+    
     # SERVICE CHECK: Ensure Windows service is running
     $service = Get-Service -Name $ComponentName -ErrorAction SilentlyContinue
     $success = $false
