@@ -894,9 +894,60 @@ catch {
     exit 45
 }
 
+# Generate and execute a temporary CMD wrapper to call SENV with the correct component type.
+    $serviceName = $ComponentName 
+
+    $wshell = New-Object -ComObject WScript.Shell 
+
+    $sessionDir = "C:\DBA\nest\senv" 
+ 
+
+    if (-not (Test-Path $sessionDir)) { 
+
+        $rc = 10 
+
+        $msg = "Session directory '$sessionDir' not found." 
+
+        Write-Host ((Get-Date -format s) + " - VERROR : $msg") 
+
+        Write-Host ((Get-Date -format s) + " - VRETURNCODE : $rc") 
+
+        exit $rc 
+
+    } 
+
+    $cmd = @"
+@echo off
+set "SENV_HOME=C:\DBA\nest\senv"
+call "%SENV_HOME%\senv_profile.cmd"
+timeout /t 10 /nobreak >nul
+call "%SENV_HOME%\senv.cmd" $resolvedType $ComponentName
+timeout /t 10 /nobreak >nul
+if %errorlevel% neq 0 (
+  echo Fehler beim Aufruf von senv.cmd
+  rem Window remains open
+)
+rem all calls ...
+timeout /t 10 /nobreak >nul
+call confresolve --inputfile %SRV_BASE%\conf\httpd.conf.in --configfile=%SRV_BASE%\conf\server.inc
+timeout /t 30 /nobreak >nul
+
+echo Done. This window will close automatically in 15 seconds...
+timeout /t 15 /nobreak >nul
+exit
+"@
+
+    $cmdPath = "C:\TEMP\disable_component_$ComponentName.cmd"
+    Set-Content -Path $cmdPath -Value $cmd -Encoding ASCII
+
+    Start-Process -FilePath "cmd.exe" -ArgumentList "/k `"$cmdPath`"" -WorkingDirectory "C:\DBA\nest\senv"
+
+
+
+###
 # WAIT: Give system time to update service
-    Write-Host "`nWait 1 minute before checking status..." -ForegroundColor Yellow
-    Start-Sleep -Seconds 60   
+    Write-Host "`nWait 2 minute before checking status..." -ForegroundColor Yellow
+    Start-Sleep -Seconds 120   
 
     # VALIDATION: Check new .senv block
     $newResult = Find-ComponentInSenv -ComponentName $ComponentName -ComponentType $resolvedType -SenvFolder $SenvFolder
