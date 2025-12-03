@@ -894,6 +894,32 @@ catch {
     exit 45
 }
 
+## Ensure-TempFolder - Ensures that the specified folder exists.
+function Ensure-TempFolder {
+    param(
+        [string]$Path = "C:\TEMP"
+    )
+
+    try {
+        if (-not (Test-Path -Path $Path)) {
+            Write-Host "Folder '$Path' not found, creating..." -ForegroundColor Yellow
+            New-Item -ItemType Directory -Path $Path -Force | Out-Null
+            Write-Host "Folder '$Path' created successfully." -ForegroundColor Green
+        }
+        else {
+            Write-Host "Folder '$Path' already exists." -ForegroundColor Gray
+        }
+    }
+    catch {
+        Write-Host "VERROR: Could not verify or create '$Path' : $($_.Exception.Message)" -ForegroundColor Red
+        Write-Host ((Get-Date -Format s) + " - VRETURNCODE : 11")
+        exit 11
+    }
+}
+
+#region Main Script
+Ensure-TempFolder -Path "C:\TEMP"
+
 # Generate and execute a temporary CMD wrapper to call SENV with the correct component type.
     $serviceName = $ComponentName 
 
@@ -1017,12 +1043,45 @@ exit
 
 }
 
+####################################################################################
+# APACHE PATCHING WORKFLOW -> FUNCTIONS & PREPARATION (END)
+####################################################################################
+
 # CLEANUP: Stop transcript logging
 if ($global:logFile) {
     try { Stop-Transcript | Out-Null } catch {}
     Write-Host "Log written to $global:logFile" -ForegroundColor Green
 }
 
+# -------------------------------------------
+# CLEANUP: Remove disable_component files
+# -------------------------------------------
+try {
+    $tempPath = "C:\TEMP"
+
+    if (Test-Path $tempPath) {
+        Write-Host "Cleaning up disable_component files in $tempPath..."
+
+        # Löscht alle Dateien die mit disable_component_ beginnen
+        $pattern = "disable_component_*"
+
+        $items = Get-ChildItem -Path $tempPath -Filter $pattern -Force -ErrorAction SilentlyContinue
+
+        if ($items.Count -gt 0) {
+            $items | Remove-Item -Force -ErrorAction SilentlyContinue
+            Write-Host "Cleanup completed: $( $items.Count ) file(s) removed."
+        }
+        else {
+            Write-Host "No disable_component files found for cleanup."
+        }
+    }
+    else {
+        Write-Host "TEMP folder does not exist. Skipping cleanup."
+    }
+}
+catch {
+    Write-Warning "Cleanup failed: $($_.Exception.Message)"
+}
 ####################################################################################
 # PATCHSCRIPT COMPLETED => bemb004 / Internet Services
 ####################################################################################
