@@ -8,7 +8,7 @@ param (
 
 # Define target versions for each Tomcat major version
 $TomcatTargetMap = @{
-    "9"  = "9.0.111"
+    "9"  = "9.0.113"
     "10" = "10.1.48"
     "11" = "11.0.13"
 }
@@ -526,6 +526,28 @@ if ($resolvedType -eq 'tomcat') {
                 }
             }
         }
+
+        $javaOptions9 = (Get-ItemProperty -Path $javaKey -ErrorAction SilentlyContinue).Options9
+        if ($null -ne $javaOptions9) {
+            Write-Host "Found Java Options9 → updating..." -ForegroundColor Yellow
+
+            $newOpts9 = foreach ($opt in $javaOptions9) {
+
+                $line = _Swap $opt $OldVersion $NewTomcatVersion $JtcRoot
+
+                $line = $line -replace "(?i)(-Dcatalina\.home=)[^ ]+", "`$1$JtcRoot\$NewTomcatVersion"
+
+                $line = $line -replace "(?i)(-Dignore\.endorsed\.dirs=).*", "`$1$JtcRoot\$NewTomcatVersion\endorsed"
+
+                $line
+            }
+
+            Set-ItemProperty -Path $javaKey -Name Options9 -Value $newOpts9
+            Write-Host "✓ Java Options9 updated" -ForegroundColor Green
+        }
+        else {
+            Write-Host "No Options9 in registry → skipping" -ForegroundColor Gray
+        }
   
         Write-Host "Registry updated (ImagePath, DisplayName, Description, Java.Options, Start/Stop WorkingPath, Paths in Parameters)."
     }
@@ -651,30 +673,30 @@ if ($resolvedType -eq 'tomcat') {
 ####################################################################################
 elseif ($resolvedType -eq 'apache') {
 
-# FUNCTION: Read Apache log directory from Windows registry
-function Get-ApacheLogPath {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$ServiceName
-    )
+    # FUNCTION: Read Apache log directory from Windows registry
+    function Get-ApacheLogPath {
+        param(
+            [Parameter(Mandatory = $true)]
+            [string]$ServiceName
+        )
 
-    $regPath = "HKLM:\SYSTEM\CurrentControlSet\Services\$ServiceName\Parameters"
+        $regPath = "HKLM:\SYSTEM\CurrentControlSet\Services\$ServiceName\Parameters"
 
-    if (Test-Path $regPath) {
-        $props = Get-ItemProperty $regPath -ErrorAction SilentlyContinue
+        if (Test-Path $regPath) {
+            $props = Get-ItemProperty $regPath -ErrorAction SilentlyContinue
 
-        if ($props.ConfigArgs) {
-            $args = $props.ConfigArgs -join " "
+            if ($props.ConfigArgs) {
+                $args = $props.ConfigArgs -join " "
 
-            if ($args -match "(E:\\DBA\\nest\\apache\\[^\\]+\\)") {
+                if ($args -match "(E:\\DBA\\nest\\apache\\[^\\]+\\)") {
                 
-                return (Join-Path $matches[1] "logs")
+                    return (Join-Path $matches[1] "logs")
+                }
             }
         }
-    }
 
-    return $null
-}
+        return $null
+    }
 
     # DETECTION: Determine Apache log path for component
     $LogTarget = Get-ApacheLogPath -ServiceName $ComponentName
@@ -707,7 +729,7 @@ function Get-ApacheLogPath {
         exit 7
     }
 
-     # INFO: Start Apache update
+    # INFO: Start Apache update
     Write-Host "`nStart Apache update to version $NewApacheVersion..."
 
     $apacheRoot = "C:\DBA\apache24\WWW"
@@ -777,7 +799,7 @@ function Get-ApacheLogPath {
         Write-Host "Apache $Version prepared at $target"
         return $target
     }
-# EXECUTION: Prepare Apache binaries / folder structure
+    # EXECUTION: Prepare Apache binaries / folder structure
     try {
         $apacheTarget = Ensure-ApacheReady -Version $NewApacheVersion -SearchRoots @("C:\DBA") -TargetRoot "C:\DBA\apache24\WWW"
         Write-Host "`nApache ready at: $apacheTarget"
@@ -844,83 +866,83 @@ function Get-ApacheLogPath {
     Set-Content -Path $senvFile -Value $newLines -Encoding UTF8
     Write-Host "`napache.senv updated for $ComponentName."
 
-# FUNCTION: Update Apache Windows Service registry
-function Update-ApacheServiceVersion {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$ServiceName,
+    # FUNCTION: Update Apache Windows Service registry
+    function Update-ApacheServiceVersion {
+        [CmdletBinding()]
+        param(
+            [Parameter(Mandatory = $true)]
+            [string]$ServiceName,
 
-        [Parameter(Mandatory = $true)]
-        [string]$NewApacheVersion,
+            [Parameter(Mandatory = $true)]
+            [string]$NewApacheVersion,
 
-        [string]$ApacheRoot = "C:\DBA\apache24\WWW"
-    )
+            [string]$ApacheRoot = "C:\DBA\apache24\WWW"
+        )
 
-    $svcRoot = "HKLM:\SYSTEM\CurrentControlSet\Services\$ServiceName"
+        $svcRoot = "HKLM:\SYSTEM\CurrentControlSet\Services\$ServiceName"
 
-    if (-not (Test-Path $svcRoot)) {
-        throw "`nService not found in registry: $svcRoot"
+        if (-not (Test-Path $svcRoot)) {
+            throw "`nService not found in registry: $svcRoot"
+        }
+
+        $newHttpd = Join-Path $ApacheRoot "$NewApacheVersion\bin\httpd.exe"
+
+        if (-not (Test-Path $newHttpd)) {
+            throw "`nNew httpd.exe not found: $newHttpd"
+        }
+
+        # New ImagePath
+        $imagePath = "`"$newHttpd`" -k runservice"
+
+        # New Description
+        $description = "Apache HTTP Server $NewApacheVersion patched"
+
+        Write-Host "`nUpdating registry for Apache service $ServiceName..." -ForegroundColor Cyan
+
+        Set-ItemProperty -Path $svcRoot -Name ImagePath   -Value $imagePath
+        Set-ItemProperty -Path $svcRoot -Name Description -Value $description
+
+        Write-Host "`n✓ ImagePath  => $imagePath" -ForegroundColor Green
+        Write-Host "✓ Description => $description" -ForegroundColor Green
     }
 
-    $newHttpd = Join-Path $ApacheRoot "$NewApacheVersion\bin\httpd.exe"
-
-    if (-not (Test-Path $newHttpd)) {
-        throw "`nNew httpd.exe not found: $newHttpd"
-    }
-
-    # New ImagePath
-    $imagePath = "`"$newHttpd`" -k runservice"
-
-    # New Description
-    $description = "Apache HTTP Server $NewApacheVersion patched"
-
-    Write-Host "`nUpdating registry for Apache service $ServiceName..." -ForegroundColor Cyan
-
-    Set-ItemProperty -Path $svcRoot -Name ImagePath   -Value $imagePath
-    Set-ItemProperty -Path $svcRoot -Name Description -Value $description
-
-    Write-Host "`n✓ ImagePath  => $imagePath" -ForegroundColor Green
-    Write-Host "✓ Description => $description" -ForegroundColor Green
-}
-
-# EXECUTION: Update registry service configuration
-try {
-    Update-ApacheServiceVersion -ServiceName $ComponentName -NewApacheVersion $NewApacheVersion
-}
-catch {
-    Write-Host ((Get-Date -Format s) + " - VERROR : Could not update Apache service registry : $($_.Exception.Message)") -ForegroundColor Red
-    Write-Host ((Get-Date -Format s) + " - VRETURNCODE : 45")
-    exit 45
-}
-
-## Ensure-TempFolder - Ensures that the specified folder exists.
-function Ensure-TempFolder {
-    param(
-        [string]$Path = "C:\TEMP"
-    )
-
+    # EXECUTION: Update registry service configuration
     try {
-        if (-not (Test-Path -Path $Path)) {
-            Write-Host "Folder '$Path' not found, creating..." -ForegroundColor Yellow
-            New-Item -ItemType Directory -Path $Path -Force | Out-Null
-            Write-Host "Folder '$Path' created successfully." -ForegroundColor Green
-        }
-        else {
-            Write-Host "Folder '$Path' already exists." -ForegroundColor Gray
-        }
+        Update-ApacheServiceVersion -ServiceName $ComponentName -NewApacheVersion $NewApacheVersion
     }
     catch {
-        Write-Host "VERROR: Could not verify or create '$Path' : $($_.Exception.Message)" -ForegroundColor Red
-        Write-Host ((Get-Date -Format s) + " - VRETURNCODE : 11")
-        exit 11
+        Write-Host ((Get-Date -Format s) + " - VERROR : Could not update Apache service registry : $($_.Exception.Message)") -ForegroundColor Red
+        Write-Host ((Get-Date -Format s) + " - VRETURNCODE : 45")
+        exit 45
     }
-}
 
-#region Main Script
-Ensure-TempFolder -Path "C:\TEMP"
+    ## Ensure-TempFolder - Ensures that the specified folder exists.
+    function Ensure-TempFolder {
+        param(
+            [string]$Path = "C:\TEMP"
+        )
 
-# Generate and execute a temporary CMD wrapper to call SENV with the correct component type.
+        try {
+            if (-not (Test-Path -Path $Path)) {
+                Write-Host "Folder '$Path' not found, creating..." -ForegroundColor Yellow
+                New-Item -ItemType Directory -Path $Path -Force | Out-Null
+                Write-Host "Folder '$Path' created successfully." -ForegroundColor Green
+            }
+            else {
+                Write-Host "Folder '$Path' already exists." -ForegroundColor Gray
+            }
+        }
+        catch {
+            Write-Host "VERROR: Could not verify or create '$Path' : $($_.Exception.Message)" -ForegroundColor Red
+            Write-Host ((Get-Date -Format s) + " - VRETURNCODE : 11")
+            exit 11
+        }
+    }
+
+    #region Main Script
+    Ensure-TempFolder -Path "C:\TEMP"
+
+    # Generate and execute a temporary CMD wrapper to call SENV with the correct component type.
     $serviceName = $ComponentName 
 
     $wshell = New-Object -ComObject WScript.Shell 
@@ -970,8 +992,8 @@ exit
 
 
 
-###
-# WAIT: Give system time to update service
+    ###
+    # WAIT: Give system time to update service
     Write-Host "`nWait 2 minute before checking status..." -ForegroundColor Yellow
     Start-Sleep -Seconds 120   
 
@@ -1062,7 +1084,7 @@ try {
     if (Test-Path $tempPath) {
         Write-Host "Cleaning up disable_component files in $tempPath..."
 
-        # Löscht alle Dateien die mit disable_component_ beginnen
+        # Deletes all files that start with disable_component_
         $pattern = "disable_component_*"
 
         $items = Get-ChildItem -Path $tempPath -Filter $pattern -Force -ErrorAction SilentlyContinue
