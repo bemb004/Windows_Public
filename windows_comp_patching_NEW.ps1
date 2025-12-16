@@ -14,7 +14,7 @@ $TomcatTargetMap = @{
 }
 
 # Apache target version
-$NewApacheVersion = "2.4.65"
+$NewApacheVersion = "2.4.66"
 
 # SENV BASE CONFIGURATION
 $SenvFolder = "C:\DBA\nest\senv\local"
@@ -268,7 +268,7 @@ if ($resolvedType -eq 'tomcat') {
     # MAPPING: Resolve target version based on Tomcat major version
     if ($TomcatTargetMap.ContainsKey($major)) {
         $NewTomcatVersion = $TomcatTargetMap[$major]
-        Write-Host "Detected Tomcat $CurrentTomcatVersion → upgrading to $NewTomcatVersion" -ForegroundColor Yellow
+        Write-Host "Detected Tomcat $CurrentTomcatVersion upgrading to $NewTomcatVersion" -ForegroundColor Yellow
     }
     else {
         Write-Host ((Get-Date -Format s) + " - VERROR : No update target defined for Tomcat $major.x") -ForegroundColor Red
@@ -529,7 +529,7 @@ if ($resolvedType -eq 'tomcat') {
 
         $javaOptions9 = (Get-ItemProperty -Path $javaKey -ErrorAction SilentlyContinue).Options9
         if ($null -ne $javaOptions9) {
-            Write-Host "Found Java Options9 → updating..." -ForegroundColor Yellow
+            Write-Host "Found Java Options9 updating..." -ForegroundColor Yellow
 
             $newOpts9 = foreach ($opt in $javaOptions9) {
 
@@ -543,10 +543,10 @@ if ($resolvedType -eq 'tomcat') {
             }
 
             Set-ItemProperty -Path $javaKey -Name Options9 -Value $newOpts9
-            Write-Host "✓ Java Options9 updated" -ForegroundColor Green
+            Write-Host " Java Options9 updated" -ForegroundColor Green
         }
         else {
-            Write-Host "No Options9 in registry → skipping" -ForegroundColor Gray
+            Write-Host "No Options9 in registry, skipping" -ForegroundColor Gray
         }
   
         Write-Host "Registry updated (ImagePath, DisplayName, Description, Java.Options, Start/Stop WorkingPath, Paths in Parameters)."
@@ -902,8 +902,8 @@ elseif ($resolvedType -eq 'apache') {
         Set-ItemProperty -Path $svcRoot -Name ImagePath   -Value $imagePath
         Set-ItemProperty -Path $svcRoot -Name Description -Value $description
 
-        Write-Host "`n✓ ImagePath  => $imagePath" -ForegroundColor Green
-        Write-Host "✓ Description => $description" -ForegroundColor Green
+        Write-Host "`n ImagePath  => $imagePath" -ForegroundColor Green
+        Write-Host " Description => $description" -ForegroundColor Green
     }
 
     # EXECUTION: Update registry service configuration
